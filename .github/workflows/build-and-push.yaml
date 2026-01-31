@@ -48,7 +48,7 @@ jobs:
           cp ../fs-default-local-configmap.yaml k8s/manifests/generated/
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add k8s/manifests/generated/configmap.yaml
+          git add .
           git commit -m "Updated generated resources from filesytem repo" || echo "No changes to commit"
           git push origin main
 
