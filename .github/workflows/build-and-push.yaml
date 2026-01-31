@@ -1,0 +1,66 @@
+name: Build Artifact and Push ConfigMap to Generated Resources Repo
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fs-repo
+        uses: actions/checkout@v4
+
+      - name: Create tar.gz artifact from local folder
+        run: |
+          tar -czf default-local.tar.gz default/local
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fs-artifact
+          path: default-local.tar.gz
+          retention-days: 5
+
+      - name: Generate ConfigMap YAML
+        run: |
+          ENCODED=$(base64 -w 0 default-local.tar.gz)
+          cat <<EOF > fs-default-local-configmap.yaml
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: default-local
+          binaryData:
+            default-local.tar.gz: $ENCODED
+          EOF
+
+      - name: Set up SSH for deploy key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_KEY }}
+
+      - name: Clone and push to config-repo
+        run: |
+          git clone git@github.com:brendon-stephens/datapower-ocp-gitops-filesystem-generated.git
+          cd datapower-ocp-gitops-filesystem-generated
+          mkdir -p k8s/manifests/generated
+          cp ../fs-default-local-configmap.yaml k8s/manifests/generated/
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add k8s/manifests/generated/configmap.yaml
+          git commit -m "Updated generated resources from filesytem repo" || echo "No changes to commit"
+          git push origin main
+
+      - name: Tag both repos on success
+        if: success()
+        env:
+          TAG: v$(date +%Y%m%d-%H%M%S)
+        run: |
+          cd ..
+          git tag $TAG
+          git push origin $TAG
+          
+          cd datapower-ocp-gitops-filesystem-generated
+          git tag $TAG
+          git push origin $TAG
