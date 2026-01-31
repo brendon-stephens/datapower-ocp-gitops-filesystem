@@ -1,5 +1,8 @@
 name: Build Artifact and Push ConfigMap to Generated Resources Repo
 
+permissions:
+  contents: write  # Grants write access for pushing tags/commits
+  
 on:
   push:
     branches: [ main ]
