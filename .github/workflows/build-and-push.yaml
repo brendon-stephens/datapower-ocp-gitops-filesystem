@@ -1,0 +1,79 @@
+name: Build Artifact and Push ConfigMap to Generated Resources Repo
+
+permissions:
+  contents: write  # Grants write access for pushing tags/commits
+  
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fs-repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags
+        
+      - name: Create tar.gz artifact from local folder
+        run: |
+          tar -czf default-local.tar.gz default/local
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fs-artifact
+          path: default-local.tar.gz
+          retention-days: 5
+
+      - name: Generate ConfigMap YAML
+        run: |
+          ENCODED=$(base64 -w 0 default-local.tar.gz)
+          cat <<EOF > fs-default-local-configmap.yaml
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: default-local
+          binaryData:
+            default-local.tar.gz: $ENCODED
+          EOF
+
+      - name: Set up SSH for deploy key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_KEY }}
+
+      - name: Clone and push to config-repo
+        run: |
+          git clone git@github.com:brendon-stephens/datapower-ocp-gitops-filesystem-generated.git
+          cd datapower-ocp-gitops-filesystem-generated
+          mkdir -p k8s/manifests/generated
+          cp ../fs-default-local-configmap.yaml k8s/manifests/generated/
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Updated generated resources from filesytem repo" || echo "No changes to commit"
+          git push origin main
+
+      - name: Tag both repos on success
+        if: success()
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo 'v0.0.0')
+          IFS='.' read -r -a PARTS <<< "${LATEST_TAG#v}"
+          MAJOR=${PARTS[0]:-0}
+          MINOR=${PARTS[1]:-0}
+          PATCH=${PARTS[2]:-0}
+          NEW_PATCH=$((PATCH + 1))
+          NEW_TAG="v$MAJOR.$MINOR.$NEW_PATCH"
+          
+          git tag $NEW_TAG
+          git push origin $NEW_TAG
+          
+          cd datapower-ocp-gitops-filesystem-generated
+          git tag $NEW_TAG
+          git push origin $NEW_TAG
