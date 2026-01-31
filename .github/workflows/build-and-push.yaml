@@ -74,6 +74,6 @@ jobs:
           git tag $NEW_TAG
           git push origin $NEW_TAG
           
-          cd config-repo
+          cd datapower-ocp-gitops-filesystem-generated
           git tag $NEW_TAG
           git push origin $NEW_TAG
